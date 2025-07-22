@@ -1,129 +1,157 @@
 import requests
 import ipywidgets as widgets
-from IPython.display import display, clear_output, Image
+from IPython.display import display, clear_output
 
-#Output widget API results
+# Load header image from URL
+header_image_url = "https://assets.stickpng.com/images/612ce4761b9679000402af1c.png"
+
+try:
+    response = requests.get(header_image_url)
+    if response.status_code == 200:
+        header_image_data = response.content
+        header = widgets.Image(
+            value=header_image_data,
+            format='png',
+            layout=widgets.Layout(height='281.25px', width='500px')
+        )
+    else:
+        header = widgets.Label("⚠️ Could not load header image.")
+except:
+    header = widgets.Label("⚠️ Image error.")
+
+# caching
+pokemon_data_cache = {}
+image_url_cache = {}
+type_list_cache = {}
+evolution_chain_cache = {}
+
+# Output widget for displaying results
 output = widgets.Output()
 
-
 def fetch_pokemon_data(pokemon_name):
-    url = f"https://pokeapi.co/api/v2/pokemon/{pokemon_name.lower()}"
-    response = requests.get(url)
+    name_key = pokemon_name.lower()
 
+    loading_spinner.value = "🔄 Loading..."
     with output:
-      clear_output()
-      if response.status_code == 200:
-        data = response.json()
-        #Get image
-        image_url = data['sprites']["front_default"]
-        #Get general info
-        name = data['name']
+        clear_output()
+
+        if name_key in pokemon_data_cache:
+            data = pokemon_data_cache[name_key]
+        else:
+            url = f"https://pokeapi.co/api/v2/pokemon/{name_key}"
+            response = requests.get(url)
+            if response.status_code != 200:
+                print(f"❌ Could not find Pokémon: {pokemon_name}")
+                loading_spinner.value = ""
+                return
+            data = response.json()
+            pokemon_data_cache[name_key] = data
+
+        # Extract info
+        name = data['name'].capitalize()
         height = data['height']
         weight = data['weight']
-        abilities = [a['ability']['name'] for a in data['abilities']]
-        result = f"Name: {name}\nHeight: {height}\nWeight: {weight}\nAbilities: {', '.join(abilities)}"
-      else:
-        result = f"Could not find Pokémon: {pokemon_name}"
-      print(result)
-      # if image_url:
-      #   display(Image(url=image_url))
-      # else:
-      #   print("No image available for this pokemon.")
-      fetch_evolution_chain_images(pokemon_name)
+        abilities = ', '.join([a['ability']['name'] for a in data['abilities']])
+        result = f"Name: {name}\nHeight: {height}\nWeight: {weight}\nAbilities: {abilities}"
+        print(result)
+
+        fetch_evolution_chain_images(name_key)
+
+    loading_spinner.value = ""
 
 
 def get_pokemon_image_url(pokemon_name):
-    url = f"https://pokeapi.co/api/v2/pokemon/{pokemon_name.lower()}"
+    name_key = pokemon_name.lower()
+    if name_key in image_url_cache:
+        return image_url_cache[name_key]
+
+    url = f"https://pokeapi.co/api/v2/pokemon/{name_key}"
     response = requests.get(url)
     if response.status_code == 200:
-        data = response.json()
-        return data['sprites']['front_default']
+        img_url = response.json()['sprites']['front_default']
+        image_url_cache[name_key] = img_url
+        return img_url
     return None
 
+
 def fetch_evolution_chain_images(pokemon_name):
-    species_url = f"https://pokeapi.co/api/v2/pokemon-species/{pokemon_name.lower()}"
-    species_response = requests.get(species_url)
+    name_key = pokemon_name.lower()
 
-    if species_response.status_code != 200:
-        print(f"Could not find species data for: {pokemon_name}")
-        return
+    if name_key in evolution_chain_cache:
+        evolution_names = evolution_chain_cache[name_key]
+    else:
+        # Fetch species and evolution chain as before
+        species_url = f"https://pokeapi.co/api/v2/pokemon-species/{name_key}"
+        species_response = requests.get(species_url)
+        if species_response.status_code != 200:
+            print(f"❌ Could not find species data for: {pokemon_name}")
+            return
 
-    species_data = species_response.json()
-    evolution_chain_url = species_data['evolution_chain']['url']
+        species_data = species_response.json()
+        evolution_chain_url = species_data['evolution_chain']['url']
 
-    evolution_response = requests.get(evolution_chain_url)
-    if evolution_response.status_code != 200:
-        print("Could not retrieve evolution chain.")
-        return
+        evolution_response = requests.get(evolution_chain_url)
+        if evolution_response.status_code != 200:
+            print("❌ Could not retrieve evolution chain.")
+            return
 
-    evolution_data = evolution_response.json()
-    chain = evolution_data['chain']
+        chain = evolution_response.json()['chain']
+        evolution_names = extract_full_evolution_chain(chain)
+        # Cache under all species names in the chain
+        for name in evolution_names:
+            evolution_chain_cache[name.lower()] = evolution_names
 
-    # Flatten the evolution chain
-    evolution_names = []
-    while chain:
-        evolution_names.append(chain['species']['name'])
-        if chain['evolves_to']:
-            chain = chain['evolves_to'][0]
-        else:
-            break
-
-    # Find current Pokémon's position
-    try:
-        index = evolution_names.index(pokemon_name.lower())
-    except ValueError:
-        print("Pokémon not found in evolution chain.")
-        return
-
-    # Get previous and next evolution names
-    previous = evolution_names[index - 1] if index > 0 else None
-    next_ = evolution_names[index + 1] if index < len(evolution_names) - 1 else None
-
-    # Display images
-    from IPython.display import Image, display
+    display_full_evolution_images(evolution_names, current=name_key)
 
 
-    display_evolution_images(previous, pokemon_name, next_)
+def extract_full_evolution_chain(chain_node):
+    """
+    Recursively extract a flat list of Pokémon names in a single evolution path.
+    Assumes a linear chain (no branches) — picks the first evolve_to path.
+    """
+    chain = [chain_node['species']['name']]
+    evolves_to = chain_node.get('evolves_to')
+
+    while evolves_to:
+        next_node = evolves_to[0]
+        chain.append(next_node['species']['name'])
+        evolves_to = next_node.get('evolves_to')
+
+    return chain
 
 
-    # if previous:
-    #     prev_img = get_pokemon_image_url(previous)
-    #     print(f"Previous Evolution: {previous.capitalize()}")
-    #     if prev_img:
-    #         display(Image(url=prev_img))
 
-    # if next_:
-    #     next_img = get_pokemon_image_url(next_)
-    #     print(f"Next Evolution: {next_.capitalize()}")
-    #     if next_img:
-    #         display(Image(url=next_img))
-
-def display_evolution_images(previous=None, current=None, next_=None):
-    images = []
-
+def display_full_evolution_images(evolution_names, current=None):
+    """Display all Pokémon in the evolution line, with the current one optionally emphasized."""
     def create_image_widget(name):
-        if name:
-            url = get_pokemon_image_url(name)
-            if url:
+        url = get_pokemon_image_url(name)
+        label = widgets.HTML(
+            f"<b>{name.capitalize()}</b>" if name == current else name.capitalize()
+        )
+
+        if url:
+            try:
+                image_data = requests.get(url).content
                 return widgets.VBox([
-                    widgets.Image(value=requests.get(url).content, format='png', width=100, height=100),
-                    widgets.Label(name.capitalize())
+                    widgets.Image(value=image_data, format='png', width=100, height=100),
+                    label
                 ])
-        return widgets.VBox([widgets.Label("None")])
+            except Exception:
+                return widgets.VBox([label, widgets.Label("(Image error)")])
+        return widgets.VBox([label, widgets.Label("(No image)")])
 
-    images.append(create_image_widget(previous))
-    images.append(create_image_widget(current))
-    images.append(create_image_widget(next_))
-
-    display(widgets.HBox(images))
+    image_widgets = [create_image_widget(name) for name in evolution_names]
+    display(widgets.HBox(image_widgets), Layout=widgets.Layout(width='120px', padding='5px'))
 
 
-# Create widgets
+
+# UI elements
 pokemon_input = widgets.Text(
     value='pikachu',
     placeholder='Enter Pokémon name',
-    description='Pokémon:',
-    disabled=False
+    description='',
+    disabled=False,
+    layout=widgets.Layout(width='200px')
 )
 
 search_button = widgets.Button(
@@ -131,26 +159,229 @@ search_button = widgets.Button(
     button_style='success'
 )
 
-clear_output_button = widgets.Button(
+browse_button = widgets.Button(
+    description='Browse by Type',
+    button_style='warning'
+)
+
+clear_button = widgets.Button(
     description='Clear',
     button_style='info'
 )
 
+type_dropdown = widgets.Dropdown(
+    options=[],
+    description='',
+    disabled=True,
+    layout=widgets.Layout(width='200px')
+)
+
+loading_spinner = widgets.HTML(value="", layout=widgets.Layout(margin="0 0 10px 0"))
 
 
-# Event handlers
-def on_button_click(b):
+# Container to dynamically swap inputs
+input_ui = widgets.HBox([pokemon_input, search_button, browse_button, clear_button])
+
+
+# Event Handlers
+def on_search_click(_):
     fetch_pokemon_data(pokemon_input.value)
-def on_clear_click_2(b):
+
+def on_clear_click(_):
     with output:
-      clear_output()
-def on_enter_pressed(change):
-  fetch_pokemon_data(change.value)
+        clear_output()
 
-#Bind events
-search_button.on_click(on_button_click)    
-clear_output_button.on_click(on_clear_click_2)
-pokemon_input.on_submit(on_enter_pressed)
+def on_enter_key(change):
+    fetch_pokemon_data(change['new'])
 
-# Display the UI
-display(pokemon_input, search_button, output, clear_output_button)
+def on_browse_click(_):
+    url = "https://pokeapi.co/api/v2/type/"
+    response = requests.get(url)
+
+    if response.status_code == 200:
+        types = response.json()['results']
+        type_dropdown.options = [(t['name'].capitalize(), t['name']) for t in types if t['name'] not in ['unknown', 'shadow']]
+        type_dropdown.disabled = False
+        with output:
+            clear_output()
+            print("Select a type from the dropdown to browse Pokémon.")
+    else:
+        with output:
+            clear_output()
+            print("⚠️ Failed to fetch types.")
+
+def on_type_selected(change):
+    if not change.new:
+        return
+
+    type_key = change.new.lower()
+    loading_spinner.value = "🔄 Loading Pokémon..."
+
+    with output:
+        clear_output()
+
+        if type_key in type_list_cache:
+            pokemon_list = type_list_cache[type_key]
+        else:
+            url = f"https://pokeapi.co/api/v2/type/{type_key}"
+            response = requests.get(url)
+            if response.status_code != 200:
+                print("⚠️ Could not fetch Pokémon of that type.")
+                loading_spinner.value = ""
+                return
+            data = response.json()
+            pokemon_list = sorted(set(p['pokemon']['name'] for p in data['pokemon']))
+            type_list_cache[type_key] = pokemon_list
+
+        print(f"Found {len(pokemon_list)} Pokémon of type '{type_key.capitalize()}':")
+
+        buttons = [widgets.Button(description=name.capitalize(), layout=widgets.Layout(width='auto')) for name in pokemon_list[:50]]
+
+        def make_on_click(name):
+            return lambda _: fetch_pokemon_data(name)
+
+        for btn in buttons:
+            btn.on_click(make_on_click(btn.description.lower()))
+
+        list_box = widgets.VBox(buttons)
+
+        # 🔒 Scrollable container to prevent notebook from growing too tall
+        scrollable_container = widgets.Box(
+            [list_box],
+            layout=widgets.Layout(
+                height='400px',           # Adjust height as needed
+                overflow='auto',
+                border='1px solid #ccc',
+                padding='10px',
+                width='450px'             # Same as before to keep it narrow
+            )
+        )
+
+        output.clear_output(wait=True)
+        with output:
+            display(scrollable_container)
+
+    loading_spinner.value = ""
+
+
+def switch_to_type_browse_ui():
+    # Fetch types and enable dropdown
+    url = "https://pokeapi.co/api/v2/type/"
+    response = requests.get(url)
+
+    if response.status_code == 200:
+        types = response.json()['results']
+        type_dropdown.options = [(t['name'].capitalize(), t['name']) for t in types if t['name'] not in ['unknown', 'shadow']]
+        type_dropdown.value = None
+        type_dropdown.disabled = False
+
+        search_button.description = 'Search by Name'
+        input_ui.children = [type_dropdown, search_button, clear_button]
+        
+        with output:
+            clear_output()
+            print("🔍 Select a type to browse Pokémon.")
+    else:
+        with output:
+            clear_output()
+            print("⚠️ Failed to fetch types.")
+
+def switch_to_text_input_ui():
+    type_dropdown.disabled = True
+    type_dropdown.value = None
+    pokemon_input.value = ''
+    search_button.description = 'Search'
+    input_ui.children = [pokemon_input, search_button, browse_button, clear_button]
+    with output:
+        clear_output()
+
+
+def on_browse_click(_):
+    switch_to_type_browse_ui()
+
+def on_clear_click(_):
+    with output:
+        clear_output()
+
+def on_search_click(_):
+    if type_dropdown in input_ui.children:
+        # User clicked "Search by Name" while in type browse mode → reset UI
+        switch_to_text_input_ui()
+        return
+
+    fetch_pokemon_data(pokemon_input.value)
+
+def on_enter_key(_):
+    fetch_pokemon_data(pokemon_input.value)
+
+def on_type_selected(change):
+    if not change.new:
+        return
+
+    type_key = change.new.lower()
+    loading_spinner.value = "🔄 Loading Pokémon..."
+
+    output.clear_output(wait=True)
+
+    with output:
+        if type_key in type_list_cache:
+            pokemon_list = type_list_cache[type_key]
+        else:
+            url = f"https://pokeapi.co/api/v2/type/{type_key}"
+            response = requests.get(url)
+            if response.status_code != 200:
+                print("⚠️ Could not fetch Pokémon of that type.")
+                loading_spinner.value = ""
+                return
+            data = response.json()
+            pokemon_list = sorted(set(p['pokemon']['name'] for p in data['pokemon']))
+            type_list_cache[type_key] = pokemon_list
+
+        print(f"Found {len(pokemon_list)} Pokémon of type '{type_key.capitalize()}':")
+
+        buttons = []
+        for name in pokemon_list[:50]:
+            btn = widgets.Button(description=name.capitalize())
+            btn.layout.width = '100%'  # full width
+            # Let height be default (no setting)
+            buttons.append(btn)
+
+            def make_on_click(poke_name):
+                return lambda _: fetch_pokemon_data(poke_name)
+
+            btn.on_click(make_on_click(name))
+
+        list_box = widgets.VBox(buttons, layout=widgets.Layout(width='100%'))
+
+        scrollable_container = widgets.Box(
+            [list_box],
+            layout=widgets.Layout(
+                height='auto',          # fixed height container
+                overflow_y='auto',       # vertical scrollbar when needed
+                overflow_x='hidden',     # no horizontal scrollbar
+                border='1px solid #ccc',
+                padding='5px',
+                width='450px',
+                max_width='100%',
+                flex_flow='column nowrap'  # prevent children from wrapping
+            )
+        )
+
+        display(scrollable_container)
+
+    loading_spinner.value = ""
+
+
+
+
+# Bind Events
+search_button.on_click(on_search_click)
+browse_button.on_click(on_browse_click)
+clear_button.on_click(on_clear_click)
+pokemon_input.on_submit(on_enter_key)
+type_dropdown.observe(on_type_selected, names='value')
+
+
+
+# Display UI
+display(widgets.VBox([header, input_ui, loading_spinner, output]))
