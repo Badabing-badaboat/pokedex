@@ -26,8 +26,8 @@ except:
     header = widgets.Label("⚠️ Image error.")
 
 
-# Fetch data
-
+## Fetch data
+# Main pokemon fetch and display function
 def fetch_pokemon_data(pokemon_name):
     name_key = pokemon_name.lower()
 
@@ -120,7 +120,7 @@ def extract_full_evolution_chain(chain_node):
     return chain
 
 
-# UI elements
+## UI elements
 pokemon_input = widgets.Text(
     value='pikachu',
     placeholder='Enter Pokémon name',
@@ -160,7 +160,7 @@ input_ui = widgets.HBox([pokemon_input, search_button, browse_button, clear_butt
 # Output widget for displaying results
 output = widgets.Output()
 
-# Event Handlers
+## Event Handlers
 def on_search_click(_):
     if type_dropdown.disabled == False:
         switch_to_text_input_ui()
@@ -192,7 +192,7 @@ def on_browse_click(_):
               print("⚠️ Failed to fetch types.")
     else: switch_to_type_browse_ui()
 
-#UI Switches
+## UI Switches
 def switch_to_text_input_ui():
     type_dropdown.disabled = True
     type_dropdown.value = None
@@ -224,6 +224,7 @@ def switch_to_type_browse_ui():
             clear_output()
             print("⚠️ Failed to fetch types.")
 
+## Extra functionality
 # List view logic
 def on_type_selected(change):
     if not change.new:
@@ -306,7 +307,7 @@ def display_full_evolution_images(evolution_names, current=None):
     display(widgets.HBox(image_widgets), Layout=widgets.Layout(width='120px', padding='5px'))
 
 
-# Bind Events
+## Bind Events
 search_button.on_click(on_search_click)
 browse_button.on_click(on_browse_click)
 clear_button.on_click(on_clear_click)
@@ -315,5 +316,5 @@ type_dropdown.observe(on_type_selected, names='value')
 
 
 
-# Display UI
+## Display UI
 display(widgets.VBox([header, input_ui, loading_spinner, output]))
