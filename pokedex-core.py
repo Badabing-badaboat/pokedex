@@ -26,7 +26,8 @@ except:
     header = widgets.Label("⚠️ Image error.")
 
 
-## Fetch data
+# Fetch data
+
 # Main pokemon fetch and display function
 def fetch_pokemon_data(pokemon_name):
     name_key = pokemon_name.lower()
@@ -47,17 +48,47 @@ def fetch_pokemon_data(pokemon_name):
             data = response.json()
             pokemon_data_cache[name_key] = data
 
-        # Extract info
-        name = data['name'].capitalize()
-        height = data['height']
-        weight = data['weight']
-        abilities = ', '.join([a['ability']['name'] for a in data['abilities']])
-        result = f"Name: {name}\nHeight: {height}\nWeight: {weight}\nAbilities: {abilities}"
-        print(result)
+        info = extract_pokemon_info(data)
+        loading_spinner.value = ""
+        return info
 
-        fetch_evolution_chain_images(name_key)
+
 
     loading_spinner.value = ""
+
+def display_pokemon(pokemon_name, info):
+    name_key = pokemon_name.lower()
+    with output:
+        clear_output()
+        print(f"✨ Pokémon: {pokemon_name.capitalize()}")
+        display_pokemon_info(info)
+        fetch_evolution_chain_images(name_key)
+
+
+def extract_pokemon_info(data):
+    """Extracts relevant Pokémon information from API data."""
+    name = data['name'].capitalize()
+    height = data['height']
+    weight = data['weight']
+    abilities = ', '.join([a['ability']['name'] for a in data['abilities']])
+    return {
+        "name": name,
+        "height": height,
+        "weight": weight,
+        "abilities": abilities
+    }
+
+def display_pokemon_info(info):
+    """Displays Pokémon information in a formatted way."""
+    result = (
+        f"Name: {info['name']}\n"
+        f"Height: {info['height']}\n"
+        f"Weight: {info['weight']}\n"
+        f"Abilities: {info['abilities']}"
+    )
+    print(result)
+
+
 
 
 def get_pokemon_image_url(pokemon_name):
@@ -100,7 +131,6 @@ def fetch_evolution_chain_images(pokemon_name):
         # Cache under all species names in the chain
         for name in evolution_names:
             evolution_chain_cache[name.lower()] = evolution_names
-
     display_full_evolution_images(evolution_names, current=name_key)
 
 
@@ -120,7 +150,7 @@ def extract_full_evolution_chain(chain_node):
     return chain
 
 
-## UI elements
+# UI elements
 pokemon_input = widgets.Text(
     value='pikachu',
     placeholder='Enter Pokémon name',
@@ -160,20 +190,22 @@ input_ui = widgets.HBox([pokemon_input, search_button, browse_button, clear_butt
 # Output widget for displaying results
 output = widgets.Output()
 
-## Event Handlers
+# Event Handlers
 def on_search_click(_):
     if type_dropdown.disabled == False:
         switch_to_text_input_ui()
         return
 
-    fetch_pokemon_data(pokemon_input.value)
+    pokemon_data = fetch_pokemon_data(pokemon_input.value)
+    display_pokemon(pokemon_input.value, pokemon_data)
 
 def on_clear_click(_):
     with output:
         clear_output()
 
 def on_enter_key(_):
-    fetch_pokemon_data(pokemon_input.value)
+    pokemon_data = fetch_pokemon_data(pokemon_input.value)
+    display_pokemon(pokemon_input.value, pokemon_data)
 
 def on_browse_click(_):
     url = "https://pokeapi.co/api/v2/type/"
@@ -192,7 +224,7 @@ def on_browse_click(_):
               print("⚠️ Failed to fetch types.")
     else: switch_to_type_browse_ui()
 
-## UI Switches
+#UI Switches
 def switch_to_text_input_ui():
     type_dropdown.disabled = True
     type_dropdown.value = None
@@ -224,7 +256,6 @@ def switch_to_type_browse_ui():
             clear_output()
             print("⚠️ Failed to fetch types.")
 
-## Extra functionality
 # List view logic
 def on_type_selected(change):
     if not change.new:
@@ -259,7 +290,11 @@ def on_type_selected(change):
             buttons.append(btn)
 
             def make_on_click(poke_name):
-                return lambda _: fetch_pokemon_data(poke_name)
+                def handler(_):
+                    info = fetch_pokemon_data(poke_name)
+                    if info:
+                        display_pokemon(poke_name, info)
+                return handler
 
             btn.on_click(make_on_click(name))
 
@@ -307,7 +342,7 @@ def display_full_evolution_images(evolution_names, current=None):
     display(widgets.HBox(image_widgets), Layout=widgets.Layout(width='120px', padding='5px'))
 
 
-## Bind Events
+# Bind Events
 search_button.on_click(on_search_click)
 browse_button.on_click(on_browse_click)
 clear_button.on_click(on_clear_click)
@@ -316,5 +351,5 @@ type_dropdown.observe(on_type_selected, names='value')
 
 
 
-## Display UI
+# Display UI
 display(widgets.VBox([header, input_ui, loading_spinner, output]))
